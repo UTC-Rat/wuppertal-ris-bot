@@ -28,8 +28,8 @@ jobs:
           DIFY_DATASET_ID: ${{ secrets.DIFY_DATASET_ID }}
         run: python sync_ris.py
 
-      - name: Fortschritt (synced_ids.json) ins Repo zurückschreiben
+      - name: Fortschritt ins Repository zurückschreiben
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Automatischer Sync: Neue Dokumente zur Historie hinzugefügt"
+          commit_message: "Automatischer Sync: synced_ids.json aktualisiert"
           file_pattern: synced_ids.json
