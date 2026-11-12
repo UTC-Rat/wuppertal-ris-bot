@@ -44,7 +44,7 @@ def main():
         if not paper_url:
             paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
 
-        # 3. Papiere laden (z.B. die neuesten 20 Stück)
+        # 3. Papiere laden (Konservativ auf 5 Dokumente pro Lauf begrenzt wegen Dify-Rate-Limit)
         res_papers = requests.get(paper_url, timeout=15)
         res_papers.raise_for_status()
         papers_data = res_papers.json()
@@ -56,8 +56,8 @@ def main():
         print(f"Fehler beim Abruf: {e}")
         return
 
-    # 4. Dokumente mit einer kleinen Pause an Dify übergeben
-    for index, paper in enumerate(papers[:20]):
+    # 4. Dokumente mit einer sicheren Pause an Dify übergeben
+    for index, paper in enumerate(papers[:5]):
         name = paper.get("name", "Dokument Wuppertal RIS")
         paper_type = paper.get("paperType", "Beschluss/Antrag")
         date = paper.get("date", "Datum unbekannt")
@@ -87,8 +87,8 @@ def main():
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
 
-        # WICHTIG: 2 Sekunden Pause zwischen den Anfragen, um das Rate Limit von Dify nicht zu sprengen
-        time.sleep(2)
+        # WICHTIG: 6 Sekunden Pause zwischen den Anfragen, um das Dify-Rate-Limit (403) zu umgehen
+        time.sleep(6)
 
 if __name__ == "__main__":
     main()
