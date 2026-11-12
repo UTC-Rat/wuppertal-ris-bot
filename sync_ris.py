@@ -34,7 +34,7 @@ def main():
         return
 
     synced_ids = load_synced_ids()
-    print(Bereits_synchronisierte_Dokumente := f"Bereits im System registrierte Dokumente: {len(synced_ids)}")
+    print(f"Bereits im System registrierte Dokumente: {len(synced_ids)}")
 
     try:
         # 1. System abfragen
@@ -71,7 +71,6 @@ def main():
         return
 
     # Filtern nach Dokumenten, die noch NICHT synchronisiert wurden
-    # (OParl liefert IDs meist über das Feld 'id' oder 'url')
     new_papers = []
     for paper in papers:
         paper_id = paper.get("id") or paper.get("url")
@@ -80,7 +79,7 @@ def main():
 
     print(f"Noch nicht synchronisierte Dokumente in dieser Charge: {len(new_papers)}")
 
-    # Wir nehmen pro Lauf maximal 5 Stück, um das Dify-Rate-Limit (403) nicht zu sprengen
+    # Wir nehmen pro Lauf maximal 5 Stück
     batch_to_sync = new_papers[:5]
     
     if not batch_to_sync:
@@ -120,17 +119,15 @@ def main():
                 success_count += 1
             else:
                 print(f"  Antwort-Details: {response.text}")
-                # Wenn das Rate-Limit zuschlägt, brechen wir diesen Lauf sicher ab
                 if response.status_code == 403:
-                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf, um Fehler zu vermeiden.")
+                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf.")
                     break
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
 
-        # 6 Sekunden Pause, um Dify-Grenzen zu schützen
         time.sleep(6)
 
-    # Speichern des neuen Status
+    # Speichern der aktualisierten ID-Liste
     save_synced_ids(synced_ids)
     print(f"Sync-Durchlauf beendet. Erfolgreich übertragen: {success_count} Dokumente.")
 
