@@ -58,13 +58,23 @@ def main():
         if not paper_url:
             paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
 
-        # 3. Alle verfügbaren Papiere von Wuppertal laden
-        res_papers = requests.get(paper_url, timeout=15)
-        res_papers.raise_for_status()
-        papers_data = res_papers.json()
-        
-        papers = papers_data.get("data", [])
-        print(f"Gesamtanzahl gefundener Dokumente in Wuppertal: {len(papers)}")
+        # 3. Papiere von Wuppertal laden (inkl. Pagination für ältere Seiten)
+        all_papers = []
+        current_url = paper_url
+        # Wir prüfen bis zu 5 Seiten (ca. 500 Dokumente), um genügend neue/unbekannte zu finden
+        for _ in range(5):
+            if not current_url:
+                break
+            res_papers = requests.get(current_url, timeout=15)
+            res_papers.raise_for_status()
+            papers_data = res_papers.json()
+            all_papers.extend(papers_data.get("data", []))
+            
+            # Nächste Seite abrufen, falls vorhanden (für historische Tiefe)
+            links = papers_data.get("links", {})
+            current_url = links.get("next")
+
+        print(f"Gesamtanzahl geprüfter Dokumente in Wuppertal: {len(all_papers)}")
 
     except Exception as e:
         print(f"Fehler beim Abruf der OParl-Daten: {e}")
@@ -72,15 +82,15 @@ def main():
 
     # Filtern nach Dokumenten, die noch NICHT synchronisiert wurden
     new_papers = []
-    for paper in papers:
+    for paper in all_papers:
         paper_id = paper.get("id") or paper.get("url")
         if paper_id and paper_id not in synced_ids:
             new_papers.append(paper)
 
-    print(f"Noch nicht synchronisierte Dokumente in dieser Charge: {len(new_papers)}")
+    print(f"Noch nicht synchronisierte Dokumente gefunden: {len(new_papers)}")
 
-    # Wir nehmen pro Lauf maximal 5 Stück
-    batch_to_sync = new_papers[:5]
+    # Wir nehmen pro Lauf maximal 10 Stück
+    batch_to_sync = new_papers[:10]
     
     if not batch_to_sync:
         print("Keine neuen Dokumente zum Synchronisieren gefunden. Alles ist aktuell!")
@@ -120,12 +130,13 @@ def main():
             else:
                 print(f"  Antwort-Details: {response.text}")
                 if response.status_code == 403:
-                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf.")
+                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf sicher.")
                     break
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
 
-        time.sleep(6)
+        # 8 Sekunden Pause zwischen den Dokumenten, damit 10 Stück pro Lauf sauber durchgehen
+        time.sleep(8)
 
     # Speichern der aktualisierten ID-Liste
     save_synced_ids(synced_ids)
