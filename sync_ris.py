@@ -12,27 +12,44 @@ def main():
         print("FEHLER: GitHub-Secrets DIFY_API_KEY oder DIFY_DATASET_ID fehlen!")
         return
 
-    # Verwenden Sie direkt den stabilen, offiziellen HTTPS-Endpunkt für Wuppertals Papiere
-    paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
-    print(f"Hole Dokumente direkt von: {paper_url}")
+    # 1. Start beim offiziellen Einstiegspunkt von Wuppertal
+    system_url = "https://oparl.wuppertal.de/oparl/system"
+    print(f"Frage Wuppertaler OParl-System ab: {system_url}")
 
     try:
-        headers_oparl = {"Accept": "application/json"}
-        res = requests.get(paper_url, headers=headers_oparl, timeout=15)
+        res = requests.get(system_url, timeout=15)
         res.raise_for_status()
-        data = res.json()
+        sys_data = res.json()
         
-        # Manchmal liefert OParl die Liste unter 'data' oder direkt zurück
-        papers = data.get("data", [])
-        if not papers and isinstance(data, list):
-            papers = data
+        # Holen der Body-URL aus dem System (z. B. "https://oparl.wuppertal.de/oparl/body/...")
+        body_url = sys_data.get("body")
+        if isinstance(body_url, list):
+            body_url = body_url[0]
+            
+        print(f"Gefundene Body-URL: {body_url}")
+        
+        # Body abfragen, um den exakten 'paper'-Link zu bekommen
+        res_body = requests.get(body_url, timeout=15)
+        res_body.raise_for_status()
+        body_data = res_body.json()
+        
+        # Wuppertal liefert hier den exakten Pfad für Papiere
+        paper_url = body_data.get("paper")
+        print(f"Exakter Papier-Endpunkt ermittelt: {paper_url}")
+        
+        # 2. Papiere/Dokumente abrufen
+        res_papers = requests.get(paper_url, timeout=15)
+        res_papers.raise_for_status()
+        papers_data = res_papers.json()
+        
+        papers = papers_data.get("data", [])
+        print(f"Erfolgreich {len(papers)} Dokumente aus Wuppertal geladen!")
 
-        print(f"Erfolgreich {len(papers)} Dokumente aus Wuppertal geladen.")
     except Exception as e:
-        print(f"Fehler beim Abruf der OParl-Daten: {e}")
+        print(f"Fehler beim dynamischen Abruf der OParl-Daten: {e}")
         return
 
-    # Die neuesten Dokumente an Dify übergeben
+    # 3. Dokumente an Dify übergeben
     for paper in papers[:10]:
         name = paper.get("name", "Dokument Wuppertal RIS")
         paper_type = paper.get("paperType", "Beschluss/Antrag")
