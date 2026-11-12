@@ -2,10 +2,16 @@ import os
 import json
 import time
 import requests
+from datetime import datetime
 
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")
 DIFY_DATASET_ID = os.getenv("DIFY_DATASET_ID")
 SYNCED_FILE = "synced_ids.json"
+
+# Wie viele Wuppertaler RIS-Einträge in EINE Dify-Datei gebündelt werden sollen
+BUNDLE_SIZE = 50
+# Wie viele Sammelpakete pro GitHub-Lauf maximal hochgeladen werden (3 Pakete = 150 Dokumente)
+MAX_BUNDLES_PER_RUN = 3
 
 def load_synced_ids():
     """Lädt die Liste der bereits synchronisierten Dokument-IDs."""
@@ -25,6 +31,11 @@ def save_synced_ids(synced_set):
     except Exception as e:
         print(f"Fehler beim Speichern der Sync-Liste: {e}")
 
+def chunk_list(data, size):
+    """Teilt eine Liste in gleich große Pakete auf."""
+    for i in range(0, len(data), size):
+        yield data[i:i + size]
+
 def main():
     print(f"DEBUG: DIFY_API_KEY vorhanden? -> {bool(DIFY_API_KEY)}")
     print(f"DEBUG: DIFY_DATASET_ID vorhanden? -> {bool(DIFY_DATASET_ID)}")
@@ -34,7 +45,7 @@ def main():
         return
 
     synced_ids = load_synced_ids()
-    print(f"Bereits im System registrierte Dokumente: {len(synced_ids)}")
+    print(f"Bereits im System registrierte Einzel-Dokumente: {len(synced_ids)}")
 
     try:
         # 1. System abfragen
@@ -58,11 +69,11 @@ def main():
         if not paper_url:
             paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
 
-        # 3. Papiere von Wuppertal laden (inkl. Pagination für ältere Seiten)
+        # 3. Papiere von Wuppertal laden (inkl. Pagination für historische Tiefe)
         all_papers = []
         current_url = paper_url
-        # Wir prüfen bis zu 5 Seiten (ca. 500 Dokumente), um genügend neue/unbekannte zu finden
-        for _ in range(5):
+        # Bis zu 15 Seiten prüfen (ca. 1.500 Dokumente), um genügend ungesyncte Einträge zu finden
+        for _ in range(15):
             if not current_url:
                 break
             res_papers = requests.get(current_url, timeout=15)
@@ -70,7 +81,6 @@ def main():
             papers_data = res_papers.json()
             all_papers.extend(papers_data.get("data", []))
             
-            # Nächste Seite abrufen, falls vorhanden (für historische Tiefe)
             links = papers_data.get("links", {})
             current_url = links.get("next")
 
@@ -87,60 +97,105 @@ def main():
         if paper_id and paper_id not in synced_ids:
             new_papers.append(paper)
 
-    print(f"Noch nicht synchronisierte Dokumente gefunden: {len(new_papers)}")
+    print(f"Noch nicht synchronisierte Einzel-Dokumente gefunden: {len(new_papers)}")
 
-    # Wir nehmen pro Lauf maximal 10 Stück
-    batch_to_sync = new_papers[:10]
-    
-    if not batch_to_sync:
+    if not new_papers:
         print("Keine neuen Dokumente zum Synchronisieren gefunden. Alles ist aktuell!")
         return
 
-    success_count = 0
-    for index, paper in enumerate(batch_to_sync):
-        paper_id = paper.get("id") or paper.get("url")
-        name = paper.get("name", "Dokument Wuppertal RIS")
-        paper_type = paper.get("paperType", "Beschluss/Antrag")
-        date = paper.get("date", "Datum unbekannt")
-        web = paper.get("web", "")
+    # Aufteilen in Pakete zu je 50 Dokumenten
+    bundles = list(chunk_list(new_papers, BUNDLE_SIZE))[:MAX_BUNDLES_PER_RUN]
+    print(f"Erstelle {len(bundles)} Sammelpaket(e) mit je bis zu {BUNDLE_SIZE} Dokumenten...")
 
-        text_content = f"WUPPERTAL RIS DOKUMENT\n\nTitel: {name}\nTyp: {paper_type}\nDatum: {date}\nURL: {web}"
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    total_synced_in_run = 0
+
+    for b_idx, bundle in enumerate(bundles):
+        # Textblock für das gesamte Paket zusammenbauen
+        entries_text = []
+        bundle_ids = []
+        dates_in_bundle = []
+
+        for paper in bundle:
+            paper_id = paper.get("id") or paper.get("url")
+            name = paper.get("name", "Dokument Wuppertal RIS")
+            paper_type = paper.get("paperType", "Beschluss/Antrag")
+            date = paper.get("date", "Datum unbekannt")
+            reference = paper.get("reference", "")
+            web = paper.get("web", "")
+
+            if date != "Datum unbekannt":
+                dates_in_bundle.append(date)
+
+            entry = (
+                f"=== WUPPERTAL RIS DOKUMENT ===\n"
+                f"Titel: {name}\n"
+                f"Vorlagen-Nr.: {reference}\n"
+                f"Typ: {paper_type}\n"
+                f"Datum: {date}\n"
+                f"Link: {web}\n"
+            )
+            entries_text.append(entry)
+            bundle_ids.append(paper_id)
+
+        combined_text = "\n\n".join(entries_text)
+        
+        # Aussagekräftiger Dateiname für Dify (z.B. mit Datumsbereich)
+        date_range = ""
+        if dates_in_bundle:
+            dates_in_bundle.sort()
+            date_range = f"({dates_in_bundle[0]} bis {dates_in_bundle[-1]})"
+
+        bundle_name = f"Wuppertal_RIS_Paket_{timestamp}_Teil{b_idx+1}_{len(bundle)}Dok {date_range}"
 
         headers = {
             "Authorization": f"Bearer {DIFY_API_KEY}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
-            "name": f"{date} - {name[:40]}",
-            "text": text_content,
+            "name": bundle_name,
+            "text": combined_text,
             "indexing_technique": "high_quality",
-            "process_rule": {"mode": "automatic"}
+            "process_rule": {
+                "mode": "custom",
+                "rules": {
+                    "pre_processing_rules": [
+                        {"id": "remove_extra_spaces", "enabled": True},
+                        {"id": "remove_urls_emails", "enabled": False}
+                    ],
+                    "segmentation": {
+                        "separator": "=== WUPPERTAL RIS DOKUMENT ===",
+                        "max_tokens": 800
+                    }
+                }
+            }
         }
 
         dify_url = f"https://api.dify.ai/v1/datasets/{DIFY_DATASET_ID}/document/create-by-text"
-        
+
         try:
-            response = requests.post(dify_url, headers=headers, json=payload, timeout=15)
-            print(f"[{index+1}/{len(batch_to_sync)}] Übertrage '{name[:30]}...' -> Dify Status: {response.status_code}")
+            response = requests.post(dify_url, headers=headers, json=payload, timeout=30)
+            print(f"[Paket {b_idx+1}/{len(bundles)}] Übertrage '{bundle_name}' -> Dify Status: {response.status_code}")
             
             if response.status_code in [200, 201]:
-                synced_ids.add(paper_id)
-                success_count += 1
+                for pid in bundle_ids:
+                    synced_ids.add(pid)
+                total_synced_in_run += len(bundle_ids)
             else:
                 print(f"  Antwort-Details: {response.text}")
                 if response.status_code == 403:
-                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf sicher.")
+                    print("Rate-Limit erreicht. Stoppe diesen Durchlauf.")
                     break
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
 
-        # 8 Sekunden Pause zwischen den Dokumenten, damit 10 Stück pro Lauf sauber durchgehen
-        time.sleep(8)
+        # 5 Sekunden Pause zwischen den Sammelpaketen
+        time.sleep(5)
 
-    # Speichern der aktualisierten ID-Liste
+    # Aktualisierte ID-Liste speichern
     save_synced_ids(synced_ids)
-    print(f"Sync-Durchlauf beendet. Erfolgreich übertragen: {success_count} Dokumente.")
+    print(f"Sync-Durchlauf beendet. Insgesamt {total_synced_in_run} Dokumente in {len(bundles)} Sammeldatei(en) gespeichert.")
 
 if __name__ == "__main__":
     main()
