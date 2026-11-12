@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 
 DIFY_API_KEY = os.getenv("DIFY_API_KEY")
@@ -26,30 +27,24 @@ def main():
         else:
             bodies_url = bodies_endpoint
         
-        print(f"Bodies-URL: {bodies_url}")
-
-        # 2. Body-Liste abfragen (Wuppertals Körperschaften)
+        # 2. Body-Liste abfragen
         res_bodies = requests.get(bodies_url, timeout=15)
         res_bodies.raise_for_status()
         bodies_data = res_bodies.json()
         
-        # OParl liefert Sammlungen oft in einem 'data'-Array oder als direkte Liste
         bodies_list = bodies_data.get("data", bodies_data)
         if isinstance(bodies_list, list) and len(bodies_list) > 0:
             body_obj = bodies_list[0]
         else:
             body_obj = bodies_list
 
-        # Jetzt den Papier-Link aus dem konkreten Body auslesen
         paper_url = body_obj.get("paper")
         print(f"Ermittelter Papier-Endpunkt: {paper_url}")
 
         if not paper_url:
-            # Fallback falls direkt nicht enthalten
             paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
-            print(f"Verwende Fallback-Papier-URL: {paper_url}")
 
-        # 3. Papiere laden
+        # 3. Papiere laden (z.B. die neuesten 20 Stück)
         res_papers = requests.get(paper_url, timeout=15)
         res_papers.raise_for_status()
         papers_data = res_papers.json()
@@ -61,8 +56,8 @@ def main():
         print(f"Fehler beim Abruf: {e}")
         return
 
-    # 4. Dokumente an Dify übergeben
-    for paper in papers[:100]:
+    # 4. Dokumente mit einer kleinen Pause an Dify übergeben
+    for index, paper in enumerate(papers[:20]):
         name = paper.get("name", "Dokument Wuppertal RIS")
         paper_type = paper.get("paperType", "Beschluss/Antrag")
         date = paper.get("date", "Datum unbekannt")
@@ -86,11 +81,14 @@ def main():
         
         try:
             response = requests.post(dify_url, headers=headers, json=payload, timeout=15)
-            print(f"Übertrage '{name[:30]}...' -> Dify Status: {response.status_code}")
+            print(f"[{index+1}] Übertrage '{name[:30]}...' -> Dify Status: {response.status_code}")
             if response.status_code not in [200, 201]:
                 print(f"  Antwort-Details: {response.text}")
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
+
+        # WICHTIG: 2 Sekunden Pause zwischen den Anfragen, um das Rate Limit von Dify nicht zu sprengen
+        time.sleep(2)
 
 if __name__ == "__main__":
     main()
