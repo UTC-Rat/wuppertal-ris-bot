@@ -62,7 +62,7 @@ def main():
         return
 
     # 4. Dokumente an Dify übergeben
-    for paper in papers[:10]:
+    for paper in papers[:100]:
         name = paper.get("name", "Dokument Wuppertal RIS")
         paper_type = paper.get("paperType", "Beschluss/Antrag")
         date = paper.get("date", "Datum unbekannt")
