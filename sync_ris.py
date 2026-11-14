@@ -69,7 +69,7 @@ def main():
         if not paper_url:
             paper_url = "https://oparl.wuppertal.de/oparl/body/1/paper"
 
-        # 3. Papiere von Wuppertal laden (inkl. Pagination für historische Tiefe)
+        # 3. Papiere von Wuppertal laden (inkl. Pagination)
         all_papers = []
         current_url = paper_url
         for _ in range(15):
@@ -89,6 +89,10 @@ def main():
         print(f"Fehler beim Abruf der OParl-Daten: {e}")
         return
 
+    # NEU: Sortierung umkehren, damit die NEUESTEN Dokumente zuerst verarbeitet werden
+    # Versucht nach ID oder Datum absteigend zu sortieren
+    all_papers.sort(key=lambda x: x.get("id") or x.get("date", ""), reverse=True)
+
     # Filtern nach Dokumenten, die noch NICHT synchronisiert wurden
     new_papers = []
     for paper in all_papers:
@@ -104,7 +108,7 @@ def main():
 
     # Aufteilen in Pakete zu je 50 Dokumenten
     bundles = list(chunk_list(new_papers, BUNDLE_SIZE))[:MAX_BUNDLES_PER_RUN]
-    print(f"Erstelle {len(bundles)} Sammelpaket(e) mit je bis zu {BUNDLE_SIZE} Dokumenten...")
+    print(f"Erstelle {len(bundles)} Sammelpaket(e) mit je bis zu {BUNDLE_SIZE} Dokumenten (beginnend mit den neuesten)...")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     total_synced_in_run = 0
