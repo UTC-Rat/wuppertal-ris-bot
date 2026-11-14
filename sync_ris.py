@@ -72,7 +72,6 @@ def main():
         # 3. Papiere von Wuppertal laden (inkl. Pagination für historische Tiefe)
         all_papers = []
         current_url = paper_url
-        # Bis zu 15 Seiten prüfen (ca. 1.500 Dokumente), um genügend ungesyncte Einträge zu finden
         for _ in range(15):
             if not current_url:
                 break
@@ -111,7 +110,6 @@ def main():
     total_synced_in_run = 0
 
     for b_idx, bundle in enumerate(bundles):
-        # Textblock für das gesamte Paket zusammenbauen
         entries_text = []
         bundle_ids = []
         dates_in_bundle = []
@@ -140,7 +138,6 @@ def main():
 
         combined_text = "\n\n".join(entries_text)
         
-        # Aussagekräftiger Dateiname für Dify (z.B. mit Datumsbereich)
         date_range = ""
         if dates_in_bundle:
             dates_in_bundle.sort()
@@ -156,7 +153,7 @@ def main():
         payload = {
             "name": bundle_name,
             "text": combined_text,
-            "indexing_technique": "high_quality",
+            "indexing_technique": "economy",
             "process_rule": {
                 "mode": "custom",
                 "rules": {
@@ -190,10 +187,8 @@ def main():
         except Exception as e:
             print(f"  Fehler bei Übertragung an Dify: {e}")
 
-        # 5 Sekunden Pause zwischen den Sammelpaketen
         time.sleep(5)
 
-    # Aktualisierte ID-Liste speichern
     save_synced_ids(synced_ids)
     print(f"Sync-Durchlauf beendet. Insgesamt {total_synced_in_run} Dokumente in {len(bundles)} Sammeldatei(en) gespeichert.")
 
